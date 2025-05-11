@@ -376,5 +376,5 @@ def actual_prices():
         return jsonify({"error": f'Observation ID "{sku}" for time_key {time_key} does not exist'}), 422
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5010, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5100)), debug=True)
 
