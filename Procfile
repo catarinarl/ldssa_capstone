@@ -1,0 +1,1 @@
+web: python3 price_forecast_app.py
