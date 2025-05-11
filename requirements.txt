@@ -10,3 +10,5 @@ peewee==3.17.9
 lightgbm==4.6.0           
 plotchecker==0.2.0        
 holidays==0.72
+
+psycopg2-binary==2.9.9     # PostgreSQL driver for Railway
