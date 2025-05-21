@@ -30,8 +30,8 @@ class PricePrediction(Model):
         database = DB
         primary_key = CompositeKey('sku', 'time_key')
 
-if PricePrediction.table_exists():
-        PricePrediction.drop_table()
+# if PricePrediction.table_exists():
+#         PricePrediction.drop_table()
 
 DB.create_tables([PricePrediction], safe=True)
 
@@ -39,7 +39,7 @@ DB.create_tables([PricePrediction], safe=True)
 # Functions: prepare_data, load_model and get_predictions 
 
 def search_sku(sku_input):
-    df_trained = pd.read_csv("prepared_data/data.csv")
+    df_trained = pd.read_csv("prepared_data/data_history.csv")
     if len(df_trained.loc[df_trained.sku==sku_input])>0:
         return 1
     else:
