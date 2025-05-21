@@ -272,35 +272,35 @@ def forecast_prices():
 
     # Generate Predictions
     date_input = pd.to_datetime(str(time_key_input), format='%Y%m%d').strftime('%Y-%m-%d')
-    # try:
-    #     df_test = prepare_data(sku_input, date_input)
-    #     model_compA, model_compB = load_model(sku_input, df_test)
-    #     pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input)
-    # except Exception as e:
-    #     return jsonify({"error 4": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
-    pvp_is_competitorA = 42.0
-    pvp_is_competitorB = 42.0
+    try:
+        df_test = prepare_data(sku_input, date_input)
+        model_compA, model_compB = load_model(sku_input, df_test)
+        pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input)
+    except Exception as e:
+        return jsonify({"error 4": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
+    # pvp_is_competitorA = 42.0
+    # pvp_is_competitorB = 42.0
 
     # print("type(sku_input): ", type(sku_input))
     # print("type(time_key_input): ", type(time_key_input))
 
     sku_input = str(sku_input)
 
-    p = PricePrediction(
+    # p = PricePrediction(
+    #         sku=sku_input,
+    #         time_key=time_key_input,
+    #         pvp_is_competitorA=pvp_is_competitorA,
+    #         pvp_is_competitorB=pvp_is_competitorB,
+    # )
+
+    try:
+        # p.save()
+        PricePrediction.create(
             sku=sku_input,
             time_key=time_key_input,
             pvp_is_competitorA=pvp_is_competitorA,
             pvp_is_competitorB=pvp_is_competitorB,
-    )
-
-    try:
-        p.save()
-        # PricePrediction.create(
-        #     sku=sku_input,
-        #     time_key=time_key_input,
-        #     pvp_is_competitorA=pvp_is_competitorA,
-        #     pvp_is_competitorB=pvp_is_competitorB,
-        # )
+        )
     except IntegrityError:
         PricePrediction.update(
             pvp_is_competitorA=pvp_is_competitorA,
