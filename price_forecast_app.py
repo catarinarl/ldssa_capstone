@@ -1,11 +1,12 @@
+import os
 import json
 import joblib
 import pandas as pd
+import pickle
 from flask import Flask, jsonify, request,Response
 from peewee import SqliteDatabase, Model, IntegerField, FloatField, TextField, IntegrityError, CharField,AutoField,CompositeKey
 from playhouse.shortcuts import model_to_dict
 from playhouse.db_url import connect
-import os
 import numpy as np
 import requests
 import holidays
@@ -285,15 +286,22 @@ def forecast_prices():
 
     sku_input = str(sku_input)
 
-    try:
-        PricePrediction.create(
+    p = PricePrediction(
             sku=sku_input,
             time_key=time_key_input,
             pvp_is_competitorA=pvp_is_competitorA,
             pvp_is_competitorB=pvp_is_competitorB,
-        )
+    )
+
+    try:
+        p.save()
+        # PricePrediction.create(
+        #     sku=sku_input,
+        #     time_key=time_key_input,
+        #     pvp_is_competitorA=pvp_is_competitorA,
+        #     pvp_is_competitorB=pvp_is_competitorB,
+        # )
     except IntegrityError:
-        # return jsonify({"error 4": f'Observation sku "{sku_input}" and time_key {time_key_input} already in the database'}), 422
         PricePrediction.update(
             pvp_is_competitorA=pvp_is_competitorA,
             pvp_is_competitorB=pvp_is_competitorB,
@@ -301,6 +309,7 @@ def forecast_prices():
             PricePrediction.sku == sku_input,
             PricePrediction.time_key == time_key_input
         ).execute()
+        return jsonify({"updated": f'Observation sku "{sku_input}" and time_key {time_key_input} already in the database but was updated.'}), 422
 
     response = OrderedDict([
         ("sku", sku_input),
@@ -366,6 +375,6 @@ def debug_db():
     rows = [model_to_dict(p) for p in PricePrediction.select()]
     return jsonify(rows)
 
-
+#port=int(os.environ.get("PORT", 5100))
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5100)), debug=True)
+    app.run(host="0.0.0.0", debug=True, port=5100)
