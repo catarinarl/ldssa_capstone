@@ -51,6 +51,7 @@ def prepare_data(sku_input, date_input):
     # 1. Read history data
     df_trained = pd.read_csv("prepared_data/data_history.csv")
     df_trained['date'] = pd.to_datetime(df_trained['date'])
+    df_trained['last_promo_date'] = pd.to_datetime(df_trained['last_promo_date'])
     max_date_history = pd.to_datetime(df_trained['date'].max())
 
     # 2. Get predictions range dates
@@ -70,19 +71,17 @@ def prepare_data(sku_input, date_input):
     df_test["date_lag_1"] = df_test["date"] - pd.to_timedelta(1, unit="D")
 
     ## 3.3 Days since last promo feature (for the 1st day to predict, the other dates need to be derive from recursive forecast)
-    # df_last_promo_dates = (df_trained[df_trained["flag_promo"] == 1]
-    #                     .groupby(["sku","competitor"])["date"].max()
-    #                     .reset_index()
-    #                     .rename(columns={"date": "last_promo_date"}))
+    df_last_promo_dates = (df_trained
+                        .groupby(["sku","competitor"])["last_promo_date"].max()
+                        .reset_index())
 
     df_test = (df_test.merge((df_trained[['sku', 'date', 'competitor', 'pvp_is', 'discount']]
                                 .rename(columns={'date':'date_lag_7',
                                                 'pvp_is':'pvp_is_lag_7',
-                                                'discount':'discount_lag_7'})), on=['sku', 'date_lag_7','competitor'], how='left'))
-    #                    .merge(df_last_promo_dates, on=['sku', 'competitor'], how='left'))
-    # df_test["days_since_last_promo"] = (df_test["date"] - df_test["last_promo_date"]).dt.days
-    # df_test["days_since_last_promo"] = df_test["days_since_last_promo"].clip(lower=0)
-    df_test["days_since_last_promo"] = 0
+                                                'discount':'discount_lag_7'})), on=['sku', 'date_lag_7','competitor'], how='left')
+                    .merge(df_last_promo_dates, on=['sku', 'competitor'], how='left'))
+    df_test["days_since_last_promo"] = (df_test["date"] - df_test["last_promo_date"]).dt.days
+    df_test["days_since_last_promo"] = df_test["days_since_last_promo"].clip(lower=0)
 
     # 4. Calendar Features
     df_test['month'] = df_test['date'].dt.month
@@ -130,7 +129,11 @@ def prepare_data(sku_input, date_input):
 
     # 6. Add last pvp_was from history
     df_trained = df_trained.sort_values(by=['date'])
-    df_last_pvp_was = df_trained.groupby(['sku', 'competitor']).tail(1).reset_index(drop=True)[['sku','competitor', 'pvp_was']].rename(columns={"pvp_was":"last_pvp_was_train"})
+    df_last_pvp_was = (df_trained.groupby(['sku', 'competitor']).tail(1)
+                                 .reset_index(drop=True)
+                                 [['sku','competitor', 'pvp_was', 'pvp_was_chain']]
+                                 .rename(columns={"pvp_was":"last_pvp_was_train",
+                                                  "pvp_was_chain":"last_pvp_was_chain_train"}))
 
     df_test = (df_test.merge(df_holidays, on=['date'], how='left')
                       .merge(df_weather.drop('time', axis=1), on=['date'], how='left')
@@ -138,6 +141,7 @@ def prepare_data(sku_input, date_input):
     df_test[['holiday_importance']] = df_test[['holiday_importance']].fillna(value=0)
     df_test['structure_level_1'] = df_test['structure_level_1'].astype("str")
     df_test['structure_level_3'] = df_test['structure_level_3'].astype("str")
+    
     return df_test
 
 def load_model(sku_input, df_test):
@@ -187,31 +191,51 @@ def get_predictions(model_compA, model_compB, df_test, sku_input, date_input):
                                                             'discount_pred_competitorB':'discount_pred_competitorB_lag_7',
                                                             'pvp_is_competitorA':'pvp_is_competitorA_lag_7',
                                                             'pvp_is_competitorB':'pvp_is_competitorB_lag_7'})), on=['sku', 'competitor', 'date_lag_7'], how='left'))
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorA')), 'discount_lag_7'] = df_test['discount_pred_competitorA_lag_7']
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorA')), 'pvp_is_lag_7'] = df_test['pvp_is_competitorA_lag_7']
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorA')), 'discount_lag_7'] = df_test['discount_pred_competitorA_lag_7'].astype(float)
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorA')), 'pvp_is_lag_7'] = df_test['pvp_is_competitorA_lag_7'].astype(float)
 
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorB')), 'discount_lBg_7'] = df_test['discount_pred_competitorB_lag_7']
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorB')), 'pvp_is_lagB7'] = df_test['pvp_is_competitorB_lag_7']
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorB')), 'discount_lBg_7'] = df_test['discount_pred_competitorB_lag_7'].astype(float)
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorB')), 'pvp_is_lagB7'] = df_test['pvp_is_competitorB_lag_7'].astype(float)
 
             df_test = df_test.drop(['discount_pred_competitorA_lag_7', 'discount_pred_competitorB_lag_7', 'pvp_is_competitorA_lag_7', 'pvp_is_competitorB_lag_7'], axis=1)
+            
         ## 4.2 Get predictions
         df_compA = df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorA'))]
         df_compB = df_test.loc[((df_test.sku==sku_input) & (df_test.date==d) & (df_test.competitor=='competitorB'))]
 
-        discount_pred_competitorA = float(model_compA.predict(df_compA)[0])
-        discount_pred_competitorB = float(model_compB.predict(df_compB)[0])
+        ## try to predict for competitor A
+        if len(df_compA)>0:
+            discount_pred_competitorA = float(model_compA.predict(df_compA)[0])
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorA'] = discount_pred_competitorA
+            ## 4.3 Convert from discount to price prediction
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
+                    'pvp_is_competitorA'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorA']))
+            pvp_is_competitorA = round(float(df_test.loc[((df_test.sku==sku_input) & 
+                                            (df_test.date==d) & 
+                                            (df_test.competitor=='competitorA'))].pvp_is_competitorA.iloc[0]),2)
+        else:
+            ## if there are no records for this competitorA x sku then return chains' price
+            discount_pred_competitorA = 0
+            pvp_is_competitorA =  round(df_test.loc[((df_test.sku==sku_input) & (df_test.date==d))].last_pvp_was_chain_train.iloc[0],2)
+
+        ## try to predict for competitor B
+        if len(df_compB)>0:
+            discount_pred_competitorB = float(model_compB.predict(df_compB)[0])
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorB'] = discount_pred_competitorB
+            ## 4.3 Convert from discount to price prediction
+            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
+                    'pvp_is_competitorB'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorB']))
+            pvp_is_competitorB = round(float(df_test.loc[((df_test.sku==sku_input) & 
+                                            (df_test.date==d) & 
+                                            (df_test.competitor=='competitorB'))].pvp_is_competitorB.iloc[0]),2)
+        else:
+            ## if there are no records for this competitorA x sku then return chains' price
+            discount_pred_competitorB = 0
+            pvp_is_competitorB =  round(df_test.loc[((df_test.sku==sku_input) & (df_test.date==d))].last_pvp_was_chain_train.iloc[0],2)
 
         # print("discount_pred_competitorA: ", discount_pred_competitorA)
-        # print("discount_pred_competitorB: ", discount_pred_competitorB)
-
-        df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorA'] = discount_pred_competitorA
-        df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorB'] = discount_pred_competitorB
-
-        ## 4.3 Convert from discount to price prediction
-        df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
-                    'pvp_is_competitorA'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorA']))
-        df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
-                    'pvp_is_competitorB'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorB']))
+        # print("discount_pred_competitorB: ", discount_pred_competitorB)       
+        
 
         ## 4.4 Update days_since_last_promo (if predicted discount >0 and if there are more dates to predict)
         if len(df_test.loc[df_test.date>d])>0:
@@ -219,23 +243,15 @@ def get_predictions(model_compA, model_compB, df_test, sku_input, date_input):
                 # print("\n update days_since_last_promo for compA")
                 df_test.loc[((df_test.sku==sku_input) & (df_test.competitor=='competitorA')), 
                             'days_since_last_promo'] = (df_test.groupby(["sku", "competitor"])["date"]
-                                                               .transform(lambda dates: (dates > d).cumsum()*(dates > d)))
+                                                                .transform(lambda dates: (dates > d).cumsum()*(dates > d)))
 
             if round(discount_pred_competitorB, 2)>0:
                 # print("\n update days_since_last_promo for compB")
                 df_test.loc[((df_test.sku==sku_input) & (df_test.competitor=='competitorB')), 
                             'days_since_last_promo'] = (df_test.groupby(["sku", "competitor"])["date"]
-                                                               .transform(lambda dates: (dates > d).cumsum()*(dates > d)))
-                
-    pvp_is_competitorA = round(float(df_test.loc[((df_test.sku==sku_input) & 
-                                            (df_test.date==date_input) & 
-                                            (df_test.competitor=='competitorA'))].pvp_is_competitorA.iloc[0]),2)
-    pvp_is_competitorB = round(float(df_test.loc[((df_test.sku==sku_input) & 
-                                            (df_test.date==date_input) & 
-                                            (df_test.competitor=='competitorB'))].pvp_is_competitorB.iloc[0]),2)
+                                                                .transform(lambda dates: (dates > d).cumsum()*(dates > d)))
     
     return pvp_is_competitorA,pvp_is_competitorB
-
 
 ########################################
 # Begin web server setup
@@ -278,21 +294,8 @@ def forecast_prices():
         pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input)
     except Exception as e:
         return jsonify({"error 4": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
-    # pvp_is_competitorA = 42.0
-    # pvp_is_competitorB = 42.0
-
-    # print("type(sku_input): ", type(sku_input))
-    # print("type(time_key_input): ", type(time_key_input))
 
     sku_input = str(sku_input)
-
-    # p = PricePrediction(
-    #         sku=sku_input,
-    #         time_key=time_key_input,
-    #         pvp_is_competitorA=pvp_is_competitorA,
-    #         pvp_is_competitorB=pvp_is_competitorB,
-    # )
-
     try:
         # p.save()
         PricePrediction.create(
@@ -335,16 +338,9 @@ def actual_prices():
     time_key = obs_dict["time_key"]
     pvp_is_competitorA_actual = obs_dict["pvp_is_competitorA_actual"]
     pvp_is_competitorB_actual = obs_dict["pvp_is_competitorB_actual"]
-    print("sku: ", sku)
-    print("time_key: ", time_key)
-    print("pvp_is_competitorA_actual: ", pvp_is_competitorA_actual)
-    print("pvp_is_competitorB_actual: ", pvp_is_competitorB_actual)
 
     if not isinstance(sku, str) or not isinstance(time_key, int) or not isinstance(pvp_is_competitorA_actual, float) or not isinstance(pvp_is_competitorB_actual, float):
         return jsonify({"error": "Invalid input format"}), 422
-    
-    print("type(sku): ", type(sku))
-    print("type(time_key): ", type(time_key))
 
     try:
         p = PricePrediction.get((PricePrediction.sku == sku) & (PricePrediction.time_key == time_key))
