@@ -288,12 +288,12 @@ def forecast_prices():
 
     # Generate Predictions
     date_input = pd.to_datetime(str(time_key_input), format='%Y%m%d').strftime('%Y-%m-%d')
-    # try:
-    df_test = prepare_data(sku_input, date_input)
-    model_compA, model_compB = load_model(sku_input, df_test)
-    pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input)
-    # except Exception as e:
-    #     return jsonify({"error 4": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
+    try:
+        df_test = prepare_data(sku_input, date_input)
+        model_compA, model_compB = load_model(sku_input, df_test)
+        pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input)
+    except Exception as e:
+        return jsonify({"error 4": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
 
     sku_input = str(sku_input)
     try:
