@@ -258,7 +258,7 @@ def get_predictions(model_compA, model_compB, df_test, sku_input, date_input):
 
 app = Flask(__name__)
 
-@app.route("/forecast_prices", methods=["POST"])
+@app.route("/forecast_prices/", methods=["POST"])
 def forecast_prices():
     obs_dict = request.get_json()
 
@@ -327,7 +327,7 @@ def forecast_prices():
         mimetype='application/json'
         )
 
-@app.route("/actual_prices", methods=["POST"])
+@app.route("/actual_prices/", methods=["POST"])
 def actual_prices():
     obs_dict = request.get_json()
 
