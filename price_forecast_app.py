@@ -30,8 +30,8 @@ class PricePrediction(Model):
         database = DB
         primary_key = CompositeKey('sku', 'time_key')
 
-if PricePrediction.table_exists():
-        PricePrediction.drop_table()
+# if PricePrediction.table_exists():
+#         PricePrediction.drop_table()
 
 DB.create_tables([PricePrediction], safe=True)
 
