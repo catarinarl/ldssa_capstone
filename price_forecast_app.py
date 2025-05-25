@@ -142,7 +142,7 @@ def prepare_data(sku_input, date_input):
     df_test['structure_level_1'] = df_test['structure_level_1'].astype("str")
     df_test['structure_level_3'] = df_test['structure_level_3'].astype("str")
     
-    return df_test
+    return max_date_history, df_test
 
 def load_model(sku_input, df_test):
     """Loads model for the input sku"""
@@ -172,7 +172,7 @@ def load_model(sku_input, df_test):
     
     return model_compA, model_compB
 
-def get_predictions(model_compA, model_compB, df_test, sku_input, date_input):
+def get_predictions(model_compA, model_compB, df_test, sku_input, date_input, max_date_history):
     """ Generate predictions for provided models, sku and date """
 
     df_test['discount_pred_competitorA'] = None
@@ -205,14 +205,19 @@ def get_predictions(model_compA, model_compB, df_test, sku_input, date_input):
 
         ## try to predict for competitor A
         if len(df_compA)>0:
-            discount_pred_competitorA = float(model_compA.predict(df_compA)[0])
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorA'] = discount_pred_competitorA
-            ## 4.3 Convert from discount to price prediction
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
-                    'pvp_is_competitorA'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorA']))
-            pvp_is_competitorA = round(float(df_test.loc[((df_test.sku==sku_input) & 
-                                            (df_test.date==d) & 
-                                            (df_test.competitor=='competitorA'))].pvp_is_competitorA.iloc[0]),2)
+            if pd.to_datetime(date_input) > max_date_history:
+                discount_pred_competitorA = float(model_compA.predict(df_compA)[0])
+                df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorA'] = discount_pred_competitorA
+                ## 4.3 Convert from discount to price prediction
+                df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
+                        'pvp_is_competitorA'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorA']))
+                pvp_is_competitorA = round(float(df_test.loc[((df_test.sku==sku_input) & 
+                                                (df_test.date==d) & 
+                                                (df_test.competitor=='competitorA'))].pvp_is_competitorA.iloc[0]),2)
+            else:
+                ## if date is not in the future 
+                discount_pred_competitorA = 0
+                pvp_is_competitorA =  round(df_test.loc[((df_test.sku==sku_input) & (df_test.date==d))].last_pvp_was_train.iloc[0],2)
         else:
             ## if there are no records for this competitorA x sku then return chains' price
             discount_pred_competitorA = 0
@@ -220,22 +225,24 @@ def get_predictions(model_compA, model_compB, df_test, sku_input, date_input):
 
         ## try to predict for competitor B
         if len(df_compB)>0:
-            discount_pred_competitorB = float(model_compB.predict(df_compB)[0])
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorB'] = discount_pred_competitorB
-            ## 4.3 Convert from discount to price prediction
-            df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
-                    'pvp_is_competitorB'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorB']))
-            pvp_is_competitorB = round(float(df_test.loc[((df_test.sku==sku_input) & 
-                                            (df_test.date==d) & 
-                                            (df_test.competitor=='competitorB'))].pvp_is_competitorB.iloc[0]),2)
+            if pd.to_datetime(date_input) > max_date_history:
+                discount_pred_competitorB = float(model_compB.predict(df_compB)[0])
+                df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 'discount_pred_competitorB'] = discount_pred_competitorB
+                ## 4.3 Convert from discount to price prediction
+                df_test.loc[((df_test.sku==sku_input) & (df_test.date==d)), 
+                        'pvp_is_competitorB'] = (df_test['last_pvp_was_train']*(1-df_test['discount_pred_competitorB']))
+                pvp_is_competitorB = round(float(df_test.loc[((df_test.sku==sku_input) & 
+                                                (df_test.date==d) & 
+                                                (df_test.competitor=='competitorB'))].pvp_is_competitorB.iloc[0]),2)
+            else:
+                ## if date is not in the future 
+                discount_pred_competitorB = 0
+                pvp_is_competitorB =  round(df_test.loc[((df_test.sku==sku_input) & (df_test.date==d))].last_pvp_was_train.iloc[0],2)
         else:
             ## if there are no records for this competitorA x sku then return chains' price
             discount_pred_competitorB = 0
             pvp_is_competitorB =  round(df_test.loc[((df_test.sku==sku_input) & (df_test.date==d))].last_pvp_was_chain_train.iloc[0],2)
 
-        # print("discount_pred_competitorA: ", discount_pred_competitorA)
-        # print("discount_pred_competitorB: ", discount_pred_competitorB)       
-        
 
         ## 4.4 Update days_since_last_promo (if predicted discount >0 and if there are more dates to predict)
         if len(df_test.loc[df_test.date>d])>0:
@@ -283,18 +290,28 @@ def forecast_prices():
     # Search for sku (if not in the database return error message)
     if search_sku(sku_input)==0:
         return jsonify({
-            "error 3": "Unknown sku"
+            "error 3": "Unknown sku",
+            "sku": str(sku_input)
         }), 422
 
 
-    # Generate Predictions
-    date_input = pd.to_datetime(str(time_key_input), format='%Y%m%d').strftime('%Y-%m-%d')
+    # Try to convert date input into datetime
     try:
-        df_test = prepare_data(sku_input, date_input)
+        date_input = pd.to_datetime(str(time_key_input), format='%Y%m%d').strftime('%Y-%m-%d')
+    except:
+        return jsonify({
+            "error 4": "Date input is not a valid date",
+            "time_key": str(time_key_input)
+        }), 422
+
+    # Generate Predictions
+    try:
+        max_date_history, df_test = prepare_data(sku_input, date_input)
+
         model_compA, model_compB = load_model(sku_input, df_test)
-        pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input)
+        pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input, max_date_history)
     except Exception as e:
-        return jsonify({"error 4": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
+        return jsonify({"error 5": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
 
     sku_input = str(sku_input)
     try:
@@ -313,7 +330,7 @@ def forecast_prices():
             PricePrediction.sku == sku_input,
             PricePrediction.time_key == time_key_input
         ).execute()
-        return jsonify({"updated": f'Observation sku "{sku_input}" and time_key {time_key_input} already in the database but was updated.'}), 422
+        # return jsonify({"updated": f'Observation sku "{sku_input}" and time_key {time_key_input} already in the database but was updated.'}), 422
 
     response = OrderedDict([
         ("sku", sku_input),
