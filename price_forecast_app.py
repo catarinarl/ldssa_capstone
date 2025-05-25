@@ -97,37 +97,49 @@ def prepare_data(sku_input, date_input):
     df_holidays["holiday_importance"] = df_holidays["holiday"].str.lower().str.contains("christmas|new year|easter", regex=True).astype(int) + 1
     df_holidays = df_holidays[['date', 'holiday_importance']]
 
-    try:
-        url = "https://archive-api.open-meteo.com/v1/archive"
-        params = {
-            "latitude": 39.6945,
-            "longitude": -8.1306,
-            "start_date": df_test["date"].min().strftime("%Y-%m-%d"),
-            "end_date": df_test["date"].max().strftime("%Y-%m-%d"),
-            "daily": ["apparent_temperature_mean", "precipitation_sum"],
-            "timezone": "Europe/London"
-        }
-        r = requests.get(url, params=params)
-        r.raise_for_status() 
-        jsondata = r.json()
-        daily_data = jsondata['daily']
-        df_weather = (pd.DataFrame.from_dict(daily_data))
-        ## Remove decimal cases
-        df_weather['date'] = pd.to_datetime(df_weather['time'])
-        df_weather['apparent_temperature_mean'] = df_weather['apparent_temperature_mean'].astype("int")
-        df_weather['precipitation_sum'] = df_weather['precipitation_sum'].astype("int")
-    except requests.exceptions.HTTPError as errh: 
-        print("HTTP Error while trying to extract weather info ")
-        print(errh.args[0])
-        raise
-    except requests.exceptions.ReadTimeout as errrt: 
-        print("Time out while trying to extract weather info")
-        print(errrt.args[0])
-        raise
-    except requests.exceptions.ConnectionError as conerr: 
-        print("Connection error while trying to extract weather info ") 
-        print(conerr.args[0])
-        raise
+    ## If date is < today: read in archive
+    if pd.to_datetime(date_input) < pd.Timestamp.today():
+        start_date = df_test["date"].min().strftime("%Y-%m-%d")
+        end_date = df_test["date"].max().strftime("%Y-%m-%d")
+
+        try:
+            url = "https://archive-api.open-meteo.com/v1/archive"
+            params = {
+                "latitude": 39.6945,
+                "longitude": -8.1306,
+                "start_date": start_date,
+                "end_date": end_date,
+                "daily": ["apparent_temperature_mean", "precipitation_sum"],
+                "timezone": "Europe/London"
+            }
+            r = requests.get(url, params=params)
+            r.raise_for_status() 
+            jsondata = r.json()
+            daily_data = jsondata['daily']
+            df_weather = (pd.DataFrame.from_dict(daily_data))
+            ## Remove decimal cases
+            df_weather['date'] = pd.to_datetime(df_weather['time'])
+            df_weather['apparent_temperature_mean'] = df_weather['apparent_temperature_mean'].astype("int")
+            df_weather['precipitation_sum'] = df_weather['precipitation_sum'].astype("int")
+        except requests.exceptions.HTTPError as errh: 
+            print("HTTP Error while trying to extract weather info ")
+            print(errh.args[0])
+            raise
+        except requests.exceptions.ReadTimeout as errrt: 
+            print("Time out while trying to extract weather info")
+            print(errrt.args[0])
+            raise
+        except requests.exceptions.ConnectionError as conerr: 
+            print("Connection error while trying to extract weather info ") 
+            print(conerr.args[0])
+            raise
+        df_test = (df_test.merge(df_weather.drop('time', axis=1), on=['date'], how='left'))
+    else:
+        # start_date = (df_test["date"].min() - pd.DateOffset(years=1))
+        # end_date = (df_test["date"].max() - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
+        df_test['apparent_temperature_mean'] = 20
+        df_test['precipitation_sum'] = 0
+        
 
     # 6. Add last pvp_was from history
     df_trained = df_trained.sort_values(by=['date'])
@@ -138,7 +150,6 @@ def prepare_data(sku_input, date_input):
                                                   "pvp_was_chain":"last_pvp_was_chain_train"}))
 
     df_test = (df_test.merge(df_holidays, on=['date'], how='left')
-                      .merge(df_weather.drop('time', axis=1), on=['date'], how='left')
                       .merge(df_last_pvp_was,on=['sku', 'competitor'], how='left'))
     df_test[['holiday_importance']] = df_test[['holiday_importance']].fillna(value=0)
     df_test['structure_level_1'] = df_test['structure_level_1'].astype("str")
