@@ -55,7 +55,10 @@ def prepare_data(sku_input, date_input):
     max_date_history = pd.to_datetime(df_trained['date'].max())
 
     # 2. Get predictions range dates
-    date_pred_range = list(pd.date_range(start=max_date_history+ pd.Timedelta(days=1), end=date_input, freq='D').strftime('%Y-%m-%d'))
+    if pd.to_datetime(date_input) > max_date_history:
+        date_pred_range = list(pd.date_range(start=max_date_history+ pd.Timedelta(days=1), end=date_input, freq='D').strftime('%Y-%m-%d'))
+    else:
+        date_pred_range = list([max_date_history])
     df_date_pred_range = pd.DataFrame(date_pred_range, columns=['date'])
     df_date_pred_range['date'] = pd.to_datetime(df_date_pred_range['date'])
 
@@ -87,7 +90,6 @@ def prepare_data(sku_input, date_input):
     df_test['month'] = df_test['date'].dt.month
     df_test['day_of_week'] = df_test['date'].dt.dayofweek  # Monday=0, Sunday=6
     df_test['week_of_month'] = df_test['date'].apply(lambda d: (d.day - 1) // 7 + 1)
-
 
     # 5. Add Holidays & Weather Data
     df_holidays = pd.DataFrame(holidays.Portugal(years=range(df_test["date"].min().year, df_test["date"].max().year + 1), subdiv="11").items(), columns=["date", "holiday"])
@@ -268,15 +270,13 @@ app = Flask(__name__)
 @app.route("/forecast_prices/", methods=["POST"])
 def forecast_prices():
     obs_dict = request.get_json()
-    print("Received request data (forecast_prices):", obs_dict)
+    print("Received request data (forecast_prices): \n", obs_dict)
 
     if "sku" not in obs_dict or "time_key" not in obs_dict:
         return jsonify({"error 1": "Missing required fields"}), 422
 
     sku_input = obs_dict["sku"]
     time_key_input = obs_dict["time_key"]
-    # print("sku_input: ", sku_input)
-    # print("time_key_input: ", time_key_input)
 
     if not isinstance(sku_input, str) or not isinstance(time_key_input, int):
         return jsonify({
@@ -305,13 +305,13 @@ def forecast_prices():
         }), 422
 
     # Generate Predictions
-    try:
-        max_date_history, df_test = prepare_data(sku_input, date_input)
+    # try:
+    max_date_history, df_test = prepare_data(sku_input, date_input)
 
-        model_compA, model_compB = load_model(sku_input, df_test)
-        pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input, max_date_history)
-    except Exception as e:
-        return jsonify({"error 5": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
+    model_compA, model_compB = load_model(sku_input, df_test)
+    pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input, max_date_history)
+    # except Exception as e:
+        # return jsonify({"error 5": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
 
     sku_input = str(sku_input)
     try:
@@ -348,7 +348,7 @@ def forecast_prices():
 @app.route("/actual_prices/", methods=["POST"])
 def actual_prices():
     obs_dict = request.get_json()
-    print("Received request data (forecast_prices):", obs_dict)
+    print("Received request data (forecast_prices)\n:", obs_dict)
 
     if "sku" not in obs_dict or "time_key" not in obs_dict or "pvp_is_competitorA_actual" not in obs_dict or "pvp_is_competitorB_actual" not in obs_dict:
         return jsonify({"error": "Missing required fields"}), 422
@@ -375,6 +375,10 @@ def actual_prices():
             ("pvp_is_competitorA_actual", p.pvp_is_competitorA_actual),
             ("pvp_is_competitorB_actual", p.pvp_is_competitorB_actual),
         ])
+
+        ## Print MAPE and BIAS
+        print("BIAS compA: ", round((p.pvp_is_competitorA-pvp_is_competitorA_actual)/pvp_is_competitorA_actual,4))
+        print("BIAS compB: ", round((p.pvp_is_competitorB-pvp_is_competitorB_actual)/pvp_is_competitorB_actual,4))
 
         return Response(
             json.dumps(response, indent=2),
