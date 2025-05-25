@@ -359,7 +359,7 @@ def forecast_prices():
 @app.route("/actual_prices/", methods=["POST"])
 def actual_prices():
     obs_dict = request.get_json()
-    print("Received request data (forecast_prices)\n:", obs_dict)
+    print("Received request data (actual_prices)\n:", obs_dict)
 
     if "sku" not in obs_dict or "time_key" not in obs_dict or "pvp_is_competitorA_actual" not in obs_dict or "pvp_is_competitorB_actual" not in obs_dict:
         return jsonify({"error": "Missing required fields"}), 422
