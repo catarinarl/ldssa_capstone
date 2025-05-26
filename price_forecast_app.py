@@ -97,10 +97,46 @@ def prepare_data(sku_input, date_input):
     df_holidays["holiday_importance"] = df_holidays["holiday"].str.lower().str.contains("christmas|new year|easter", regex=True).astype(int) + 1
     df_holidays = df_holidays[['date', 'holiday_importance']]
 
-    ## If date is < today: read in archive
-    if pd.to_datetime(date_input) < pd.Timestamp.today():
+    ## If date is < today -5 days (weather api delay)
+    today_minus_delay = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
+    if pd.to_datetime(date_input) <= today_minus_delay:
         start_date = df_test["date"].min().strftime("%Y-%m-%d")
         end_date = df_test["date"].max().strftime("%Y-%m-%d")
+    else:
+        ## Read until max date in history and then read ly for the remaining dates
+        start_date = df_test["date"].min().strftime("%Y-%m-%d")
+        end_date = today_minus_delay.strftime("%Y-%m-%d")
+
+    try:
+        url = "https://archive-api.open-meteo.com/v1/archive"
+        params = {
+            "latitude": 39.6945,
+            "longitude": -8.1306,
+            "start_date": start_date,
+            "end_date": end_date,
+            "daily": ["apparent_temperature_mean", "precipitation_sum"],
+            "timezone": "Europe/London"
+        }
+        r = requests.get(url, params=params)
+        r.raise_for_status() 
+        jsondata = r.json()
+        daily_data = jsondata['daily']
+        df_weather = (pd.DataFrame.from_dict(daily_data))
+        ## Remove decimal cases
+        df_weather['date'] = pd.to_datetime(df_weather['time'])
+        df_weather['apparent_temperature_mean'] = df_weather['apparent_temperature_mean'].astype("int")
+        df_weather['precipitation_sum'] = df_weather['precipitation_sum'].astype("int")
+    except Exception as e:
+        print("Error while trying to extract weather info ")
+
+    df_test = (df_test.merge(df_weather.drop('time', axis=1), on=['date'], how='left'))
+    
+    ## read ly weather
+    if pd.to_datetime(date_input) > today_minus_delay:
+        start_date = ((today_minus_delay + pd.Timedelta(days=1))- pd.DateOffset(years=1)).strftime("%Y-%m-%d")
+        end_date = (df_test["date"].max() - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
+        print("start_date: ",start_date)
+        print("end_date: ",end_date)
 
         try:
             url = "https://archive-api.open-meteo.com/v1/archive"
@@ -119,26 +155,18 @@ def prepare_data(sku_input, date_input):
             df_weather = (pd.DataFrame.from_dict(daily_data))
             ## Remove decimal cases
             df_weather['date'] = pd.to_datetime(df_weather['time'])
-            df_weather['apparent_temperature_mean'] = df_weather['apparent_temperature_mean'].astype("int")
-            df_weather['precipitation_sum'] = df_weather['precipitation_sum'].astype("int")
-        except requests.exceptions.HTTPError as errh: 
-            print("HTTP Error while trying to extract weather info ")
-            print(errh.args[0])
-            raise
-        except requests.exceptions.ReadTimeout as errrt: 
-            print("Time out while trying to extract weather info")
-            print(errrt.args[0])
-            raise
-        except requests.exceptions.ConnectionError as conerr: 
-            print("Connection error while trying to extract weather info ") 
-            print(conerr.args[0])
-            raise
-        df_test = (df_test.merge(df_weather.drop('time', axis=1), on=['date'], how='left'))
-    else:
-        # start_date = (df_test["date"].min() - pd.DateOffset(years=1))
-        # end_date = (df_test["date"].max() - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
-        df_test['apparent_temperature_mean'] = 20
-        df_test['precipitation_sum'] = 0
+            df_weather = df_weather.rename(columns={"date":"date_ly"})
+            df_weather['date'] = df_weather['date_ly'] + pd.DateOffset(years=1)
+            df_weather['apparent_temperature_mean_ly'] = df_weather['apparent_temperature_mean'].astype("int")
+            df_weather['precipitation_sum_ly'] = df_weather['precipitation_sum'].astype("int")
+        except Exception as e:
+            print("Error while trying to extract weather info ")
+
+        ## Merge ly weather data
+        df_test = (df_test.merge(df_weather[['date', 'apparent_temperature_mean_ly', 'precipitation_sum_ly']], on=['date'], how='left'))
+        df_test["apparent_temperature_mean"] = df_test["apparent_temperature_mean"].fillna(df_test["apparent_temperature_mean_ly"])
+        df_test["precipitation_sum"] = df_test["precipitation_sum"].fillna(df_test["precipitation_sum_ly"])
+        df_test = df_test.drop(['apparent_temperature_mean_ly', 'precipitation_sum_ly'], axis=1)
         
 
     # 6. Add last pvp_was from history
@@ -316,13 +344,13 @@ def forecast_prices():
         }), 422
 
     # Generate Predictions
-    # try:
-    max_date_history, df_test = prepare_data(sku_input, date_input)
+    try:
+        max_date_history, df_test = prepare_data(sku_input, date_input)
 
-    model_compA, model_compB = load_model(sku_input, df_test)
-    pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input, max_date_history)
-    # except Exception as e:
-        # return jsonify({"error 5": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
+        model_compA, model_compB = load_model(sku_input, df_test)
+        pvp_is_competitorA, pvp_is_competitorB = get_predictions(model_compA, model_compB, df_test, sku_input, date_input, max_date_history)
+    except Exception as e:
+        return jsonify({"error 5": f'Prediction failed for sku "{sku_input}" and time_key {time_key_input}'}), 422
 
     sku_input = str(sku_input)
     try:
